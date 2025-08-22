@@ -26,9 +26,10 @@ jobs:
       - name: Build application
         run: npm run build
 
-      - name: Push to Dokku
+      - name: Push to Dokku (force)
         uses: dokku/github-action@master
         with:
           git_remote_url: ${{ secrets.DOKKU_GIT_REMOTE }}
           ssh_private_key: ${{ secrets.DOKKU_SSH_PRIVATE_KEY }}
           branch: main
+          git_push_flags: --force

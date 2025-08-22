@@ -1,4 +1,4 @@
-# SCIM-MCP Server
+# SCIM MCP Server
 
 A Model Context Protocol (MCP) server that bridges SCIM 2.0 APIs, allowing MCP clients to interact with SCIM resources through standardized tools.
 
