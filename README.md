@@ -2,6 +2,15 @@
 
 A Model Context Protocol (MCP) server that bridges SCIM 2.0 APIs, allowing MCP clients to interact with SCIM resources through standardized tools.
 
+> [!TIP]
+> 🚀 **SCIM Playground:** Test this SCIM MCP server live in the **[SCIM Playground](https://scim.dev/playground/modelcontextprotocol/)** before integrating it with your own SCIM server.
+
+<p align="center">
+    <a href="https://scim.dev/playground/modelcontextprotocol/">
+        <img src="https://img.shields.io/badge/SCIM%20Playground-Try%20It%20Now-1e90ff?style=for-the-badge" alt="SCIM Playground Badge">
+    </a>
+</p>
+
 ## Quick Start
 
 ```bash
