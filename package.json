@@ -20,8 +20,12 @@
     "mcp",
     "server"
   ],
-  "author": "",
+  "author": "Limosa Digital Identity Solutions",
   "license": "ISC",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/limosa-io/mcp-scim.git"
+  },
   "devDependencies": {
     "@types/express": "^4.17.21",
     "@types/node": "^22.15.15",
