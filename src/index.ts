@@ -1,7 +1,10 @@
+#!/usr/bin/env node
+
 import express, { Request, Response, NextFunction } from 'express';
 import { ScimService, ScimApiError } from './services/scimService.js';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
+import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from "zod";
 import dotenv from 'dotenv';
 import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
@@ -13,7 +16,8 @@ dotenv.config();
 const config = {
   port: process.env.PORT || 3000,
   scimUrl: process.env.SCIM_URL || 'http://localhost:8080',
-  isDevelopment: process.env.NODE_ENV === 'development'
+  isDevelopment: process.env.NODE_ENV === 'development',
+  mode: process.env.MCP_MODE || (process.argv.includes('--stdio') ? 'stdio' : 'http')
 };
 
 /**
@@ -266,119 +270,152 @@ function getServer(authHeader?: string) {
   return server;
 }
 
-const app = express();
-app.use(express.json());
 
-// Store transports for each session type
-const transports = {
-  streamable: {} as Record<string, StreamableHTTPServerTransport>,
-  sse: {} as Record<string, SSEServerTransport>
-};
-
-app.post('/mcp', async (req: Request, res: Response) => {
-  try {
-    const authHeader = req.headers.authorization;
-
-    const transport: StreamableHTTPServerTransport = new StreamableHTTPServerTransport({
-      sessionIdGenerator: undefined,
-    });
-
-    const server = getServer(authHeader);
-
-    res.on('close', () => {
-      console.log('Request closed');
-      transport.close();
-      server.close();
-    });
-    await server.connect(transport);
-    await transport.handleRequest(req, res, req.body);
-  } catch (error) {
-    console.error('Error handling MCP request:', error);
-    if (!res.headersSent) {
-      res.status(500).json({
-        jsonrpc: '2.0',
-        error: {
-          code: -32603,
-          message: 'Internal server error',
-        },
-        id: null,
-      });
-    }
+async function runStdioServer() {
+  // For stdio mode, get auth from env
+  const authToken = process.env.SCIM_AUTH_TOKEN;
+  if (!authToken) {
+    console.error('Error: SCIM_AUTH_TOKEN environment variable is required for stdio mode');
+    process.exit(1);
   }
-});
-
-app.get('/mcp', async (req: Request, res: Response) => {
-  console.log('Received GET MCP request');
-  console.log('Request headers:', req.headers);
-  console.log('Request body:', req.body);
-  console.log('Request query:', req.query);
-  console.log('Request params:', req.params);
-  console.log('Request method:', req.method);
-  res.writeHead(405).end(JSON.stringify({
-    jsonrpc: "2.0",
-    error: {
-      code: -32000,
-      message: "Method not allowed."
-    },
-    id: null
-  }));
-});
-
-app.delete('/mcp', async (req: Request, res: Response) => {
-  console.log('Received DELETE MCP request');
-  res.writeHead(405).end(JSON.stringify({
-    jsonrpc: "2.0",
-    error: {
-      code: -32000,
-      message: "Method not allowed."
-    },
-    id: null
-  }));
-});
-
-// Legacy SSE endpoint for older clients
-app.get('/sse', async (req, res) => {
-  const authHeader = req.headers.authorization;
-
-  // Create SSE transport for legacy clients
-  const transport = new SSEServerTransport('/messages', res);
-  transports.sse[transport.sessionId] = transport;
-
-  res.on("close", () => {
-    delete transports.sse[transport.sessionId];
-  });
-  const server = getServer(authHeader);
+  const server = getServer(`Bearer ${authToken}`);
+  const transport = new StdioServerTransport();
+  console.error('SCIM MCP Server starting in stdio mode...');
+  console.error(`SCIM URL: ${config.scimUrl}`);
   await server.connect(transport);
-});
-
-// Legacy message endpoint for older clients
-app.post('/messages', async (req, res) => {
-  const sessionId = req.query.sessionId as string;
-  const transport = transports.sse[sessionId];
-  if (transport) {
-    await transport.handlePostMessage(req, res, req.body);
-  } else {
-    res.status(400).send('No transport found for sessionId');
-  }
-});
-
-// Start server
-const server = app.listen(config.port, () => {
-  console.log(`Server running on port ${config.port}`);
-
-  if (config.isDevelopment) {
-    console.log('Running in DEVELOPMENT mode with auto-reload enabled');
-    console.log('SCIM URL:', config.scimUrl);
-    console.log('To disable auto-reload, use: npm run dev');
-  }
-});
-
-// Handle graceful shutdown
-process.on('SIGTERM', () => {
-  console.log('SIGTERM signal received: closing HTTP server');
-  server.close(() => {
-    console.log('HTTP server closed');
+  process.on('SIGINT', async () => {
+    console.error('Received SIGINT, shutting down gracefully...');
+    await server.close();
+    process.exit(0);
   });
-});
+}
 
-export default app;
+async function runHttpServer() {
+  const app = express();
+  app.use(express.json());
+
+  // Store transports for each session type
+  const transports = {
+    streamable: {} as Record<string, StreamableHTTPServerTransport>,
+    sse: {} as Record<string, SSEServerTransport>
+  };
+
+  app.post('/mcp', async (req: Request, res: Response) => {
+    try {
+      const authHeader = req.headers.authorization;
+      const transport: StreamableHTTPServerTransport = new StreamableHTTPServerTransport({
+        sessionIdGenerator: undefined,
+      });
+      const server = getServer(authHeader);
+      res.on('close', () => {
+        console.log('Request closed');
+        transport.close();
+        server.close();
+      });
+      await server.connect(transport);
+      await transport.handleRequest(req, res, req.body);
+    } catch (error) {
+      console.error('Error handling MCP request:', error);
+      if (!res.headersSent) {
+        res.status(500).json({
+          jsonrpc: '2.0',
+          error: {
+            code: -32603,
+            message: 'Internal server error',
+          },
+          id: null,
+        });
+      }
+    }
+  });
+
+  app.get('/mcp', async (req: Request, res: Response) => {
+    console.log('Received GET MCP request');
+    console.log('Request headers:', req.headers);
+    console.log('Request body:', req.body);
+    console.log('Request query:', req.query);
+    console.log('Request params:', req.params);
+    console.log('Request method:', req.method);
+    res.writeHead(405).end(JSON.stringify({
+      jsonrpc: "2.0",
+      error: {
+        code: -32000,
+        message: "Method not allowed."
+      },
+      id: null
+    }));
+  });
+
+  app.delete('/mcp', async (req: Request, res: Response) => {
+    console.log('Received DELETE MCP request');
+    res.writeHead(405).end(JSON.stringify({
+      jsonrpc: "2.0",
+      error: {
+        code: -32000,
+        message: "Method not allowed."
+      },
+      id: null
+    }));
+  });
+
+  // Legacy SSE endpoint for older clients
+  app.get('/sse', async (req, res) => {
+    const authHeader = req.headers.authorization;
+    // Create SSE transport for legacy clients
+    const transport = new SSEServerTransport('/messages', res);
+    transports.sse[transport.sessionId] = transport;
+    res.on("close", () => {
+      delete transports.sse[transport.sessionId];
+    });
+    const server = getServer(authHeader);
+    await server.connect(transport);
+  });
+
+  // Legacy message endpoint for older clients
+  app.post('/messages', async (req, res) => {
+    const sessionId = req.query.sessionId as string;
+    const transport = transports.sse[sessionId];
+    if (transport) {
+      await transport.handlePostMessage(req, res, req.body);
+    } else {
+      res.status(400).send('No transport found for sessionId');
+    }
+  });
+
+  // Start server
+  const server = app.listen(config.port, () => {
+    console.log(`Server running on port ${config.port}`);
+    if (config.isDevelopment) {
+      console.log('Running in DEVELOPMENT mode with auto-reload enabled');
+      console.log('SCIM URL:', config.scimUrl);
+      console.log('To disable auto-reload, use: npm run dev');
+    }
+  });
+
+  // Handle graceful shutdown
+  process.on('SIGTERM', () => {
+    console.log('SIGTERM signal received: closing HTTP server');
+    server.close(() => {
+      console.log('HTTP server closed');
+    });
+  });
+
+  return app;
+}
+
+// Main execution logic
+if (config.mode === 'stdio' || process.argv.includes('--stdio')) {
+  runStdioServer().catch(error => {
+    console.error('Failed to start stdio server:', error);
+    process.exit(1);
+  });
+} else {
+  runHttpServer().catch(error => {
+    console.error('Failed to start HTTP server:', error);
+    process.exit(1);
+  });
+}
+
+// For compatibility with import, export a dummy app (for HTTP mode)
+const dummyApp = {};
+export default dummyApp;

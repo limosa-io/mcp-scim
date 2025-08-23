@@ -11,25 +11,26 @@ A Model Context Protocol (MCP) server that bridges SCIM 2.0 APIs, allowing MCP c
     </a>
 </p>
 
-## Quick Start
+## Usage
 
-```bash
-npm install
-npm start
+### Stdio Transport
+
+Add this configuration to your MCP client:
+
+```json
+{
+  "command": "npx",
+  "args": ["github:limosa-io/mcp-scim", "--stdio"],
+  "env": {
+    "SCIM_URL": "https://your-scim-server.com",
+    "SCIM_AUTH_TOKEN": "your-bearer-token"
+  }
+}
 ```
 
-The server runs on `http://localhost:3000` by default.
+### HTTP Transport
 
-## Configuration
-
-Set environment variables in `.env` (copy from [.env.example](.env.example)):
-
-```bash
-PORT=3000
-SCIM_URL=http://localhost:8080
-```
-
-## MCP Client Setup
+For HTTP-based MCP clients.
 
 ```json
 {
@@ -41,22 +42,38 @@ SCIM_URL=http://localhost:8080
 }
 ```
 
+> **Note:** Make sure to start the HTTP server first using `npx github:limosa-io/mcp-scim` (without --stdio flag). Please set the environment variable `SCIM_URL` and optionally `PORT`.
+
 ## Available Tools
 
-- **resourcetypes** - List available SCIM resource types
-- **getResources** - Query resources with filtering/pagination
-- **getResourceById** - Retrieve specific resource
-- **createResource** - Create new resource
-- **updateResource** - Update existing resource (PUT)
-- **patchResource** - Modify resource (PATCH)
-- **deleteResource** - Delete resource
-- **batchOperations** - Bulk operations
-- **schemas** - Get SCIM schemas
-- **serviceProviderConfig** - Get server capabilities
+| Tool | Description |
+|------|-------------|
+| `resourcetypes` | List available SCIM resource types |
+| `schemas` | Get SCIM schemas and attribute definitions |
+| `serviceProviderConfig` | Get server capabilities and configuration |
+| `getResources` | Query resources with filtering and pagination |
+| `getResourceById` | Retrieve a specific resource by ID |
+| `createResource` | Create a new SCIM resource |
+| `updateResource` | Update an existing resource (PUT) |
+| `patchResource` | Modify a resource with specific operations (PATCH) |
+| `deleteResource` | Delete a resource |
+| `batchOperations` | Perform multiple operations in a single request |
 
 ## Development
 
+### Local Development Setup
+
 ```bash
-npm run dev:watch  # Auto-reload on changes
-npm run build      # Compile
+git clone git@github.com:limosa-io/mcp-scim.git
+cd mcp-scim
+npm install
+```
+
+### Development Commands
+
+```bash
+npm run dev:watch  # Auto-reload on file changes
+npm run dev        # Run once in development mode
+npm run build      # Compile TypeScript to JavaScript
+npm start          # Run the compiled version
 ```
