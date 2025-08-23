@@ -272,12 +272,23 @@ function getServer(authHeader?: string) {
 
 
 async function runStdioServer() {
-  // For stdio mode, get auth from env
+  // For stdio mode, get auth and URL from env - both are required
   const authToken = process.env.SCIM_AUTH_TOKEN;
+  const scimUrl = process.env.SCIM_URL;
+  
   if (!authToken) {
     console.error('Error: SCIM_AUTH_TOKEN environment variable is required for stdio mode');
     process.exit(1);
   }
+  
+  if (!scimUrl) {
+    console.error('Error: SCIM_URL environment variable is required for stdio mode');
+    process.exit(1);
+  }
+  
+  // Update config with the required SCIM_URL for this session
+  config.scimUrl = scimUrl;
+  
   const server = getServer(`Bearer ${authToken}`);
   const transport = new StdioServerTransport();
   console.error('SCIM MCP Server starting in stdio mode...');
