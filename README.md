@@ -15,30 +15,38 @@ A Model Context Protocol (MCP) server that bridges SCIM 2.0 APIs, allowing MCP c
 
 ### Stdio Transport
 
-Add this configuration to your MCP client:
+Add this configuration to your MCP client's configuration file:
 
 ```json
 {
-  "command": "npx",
-  "args": ["github:limosa-io/mcp-scim", "--stdio"],
-  "env": {
-    "SCIM_URL": "https://your-scim-server.com",
-    "SCIM_AUTH_TOKEN": "your-bearer-token"
+  "mcpServers": {
+    "scim": {
+      "command": "npx",
+      "args": ["github:limosa-io/mcp-scim", "--stdio"],
+      "env": {
+        "SCIM_URL": "https://your-scim-server.com",
+        "SCIM_AUTH_TOKEN": "your-bearer-token"
+      }
+    }
   }
 }
 ```
 
 ### HTTP Transport
 
-For HTTP-based MCP clients.
+For HTTP-based MCP clients, add this configuration:
 
 ```json
 {
-  "url": "http://localhost:3000/mcp",
-  "headers": {
-    "Authorization": "Bearer your-token"
-  },
-  "type": "http"
+  "mcpServers": {
+    "scim": {
+      "url": "http://localhost:3000/mcp",
+      "headers": {
+        "Authorization": "Bearer your-token"
+      },
+      "type": "http"
+    }
+  }
 }
 ```
 
