@@ -318,7 +318,7 @@ async function runHttpServer() {
   };
 
   // Handle both /mcp and /mcp/:token routes
-  app.post(['/mcp', '/mcp/:token(*)'], async (req: Request, res: Response) => {
+  app.post(['/mcp', '/mcp/:token'], async (req: Request, res: Response) => {
     try {
       // Get auth from header or URL parameter
       let authHeader = req.headers.authorization;
@@ -360,7 +360,7 @@ async function runHttpServer() {
     }
   });
 
-  app.get(['/mcp', '/mcp/:token(*)'], async (req: Request, res: Response) => {
+  app.get(['/mcp', '/mcp/:token'], async (req: Request, res: Response) => {
     console.log('Received GET MCP request');
     console.log('Request headers:', req.headers);
     console.log('Request body:', req.body);
@@ -377,7 +377,7 @@ async function runHttpServer() {
     }));
   });
 
-  app.delete(['/mcp', '/mcp/:token(*)'], async (req: Request, res: Response) => {
+  app.delete(['/mcp', '/mcp/:token'], async (req: Request, res: Response) => {
     console.log('Received DELETE MCP request');
     res.writeHead(405).end(JSON.stringify({
       jsonrpc: "2.0",
