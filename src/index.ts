@@ -8,6 +8,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from "zod";
 import dotenv from 'dotenv';
 import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
+import { CreateMessageResultSchema } from '@modelcontextprotocol/sdk/types.js';
 
 // Load environment variables from .env file
 dotenv.config();
@@ -19,6 +20,11 @@ const config = {
   isDevelopment: process.env.NODE_ENV === 'development',
   mode: process.env.MCP_MODE || (process.argv.includes('--stdio') ? 'stdio' : 'http')
 };
+
+const ElicitResultSchema = z.object({
+  action: z.enum(['accept', 'decline', 'cancel']),
+  content: z.record(z.union([z.string(), z.number(), z.boolean()])).optional()
+}).passthrough();
 
 /**
  * Extract token from authorization header by removing 'Bearer ' prefix if present
@@ -241,6 +247,127 @@ function getServer(authHeader?: string) {
     };
   }));
 
+  server.tool('export', 'Export SCIM resources to a user-specified destination by eliciting export details and generating integration code via MCP sampling.', {}, withErrorHandling(async (_, extra) => {
+    let elicitationResult;
+    try {
+      elicitationResult = await (extra as any).sendRequest({
+        method: 'elicitation/create',
+        params: {
+          message: 'Where should SCIM data be exported? Provide the resource type to export and describe the target system (for example, a CSV file path or database connection details).',
+          requestedSchema: {
+            type: 'object',
+            properties: {
+              exportResourceType: {
+                type: 'string',
+                title: 'SCIM resource type',
+                description: 'Example: Users, Groups, or any available resource type.'
+              },
+              targetDescription: {
+                type: 'string',
+                title: 'Export destination description',
+                description: 'Describe where to send the data, such as a CSV file path, S3 bucket, or database connection instructions.'
+              }
+            },
+            required: ['exportResourceType', 'targetDescription']
+          }
+        }
+      } as any, ElicitResultSchema);
+    } catch (error) {
+      console.error('Failed to run elicitation for export tool:', error);
+      throw new Error('Unable to ask the user for export details. Ensure the client supports MCP elicitation.');
+    }
+
+    if (!elicitationResult || elicitationResult.action !== 'accept' || !elicitationResult.content) {
+      const action = elicitationResult?.action ?? 'unknown';
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `Export cancelled by user (action: ${action}).`
+          }
+        ]
+      };
+    }
+
+    const rawResourceType = elicitationResult.content.exportResourceType;
+    const rawTargetDescription = elicitationResult.content.targetDescription;
+    const exportResourceType = typeof rawResourceType === 'string' && rawResourceType.trim().length > 0
+      ? rawResourceType.trim()
+      : 'Users';
+    const targetDescription = typeof rawTargetDescription === 'string' ? rawTargetDescription.trim() : '';
+
+    if (!targetDescription) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: 'No export destination information was provided, so no code was generated.'
+          }
+        ]
+      };
+    }
+
+    const systemPrompt = [
+      'You are an expert integration engineer who produces complete, ready-to-run scripts.',
+      'Given a SCIM server endpoint, generate code that retrieves data and writes it to the destination described by the user.',
+      'Explain any assumptions clearly and prefer secure handling of credentials (environment variables, secrets managers, etc.).'
+    ].join(' ');
+
+    const userPrompt = [
+      `SCIM base URL: ${config.scimUrl}.`,
+      `Resource type to export: ${exportResourceType}.`,
+      `Destination description: ${targetDescription}.`,
+      'Output:',
+      '- Brief checklist of steps to perform.',
+      '- A complete script (choose the most appropriate language) that authenticates with the SCIM server, retrieves the specified resources, and writes them to the destination.',
+      '- Include instructions for required dependencies and environment variables.'
+    ].join('\n');
+
+    let samplingResult;
+    try {
+      samplingResult = await (extra as any).sendRequest({
+        method: 'sampling/createMessage',
+        params: {
+          systemPrompt,
+          messages: [
+            {
+              role: 'user',
+              content: {
+                type: 'text',
+                text: userPrompt
+              }
+            }
+          ],
+          temperature: 0,
+          maxTokens: 1200
+        }
+      }, CreateMessageResultSchema);
+    } catch (error) {
+      console.error('Failed to generate export code via sampling:', error);
+      throw new Error('Unable to generate export code. Ensure the client supports MCP sampling.');
+    }
+
+    let generatedText: string;
+    if (samplingResult.content.type === 'text') {
+      generatedText = samplingResult.content.text;
+    } else if (samplingResult.content.type === 'image') {
+      generatedText = 'The sampling response was an image, which cannot be rendered as code.';
+    } else if (samplingResult.content.type === 'audio') {
+      generatedText = 'The sampling response was audio, which cannot be rendered as code.';
+    } else {
+      generatedText = 'The sampling response type was not recognized.';
+    }
+
+    return {
+      content: [
+        {
+          type: 'text',
+          text: `Export plan and code generated for ${exportResourceType}:\n\n${generatedText}`
+        }
+      ]
+    };
+  }));
+
   // Retrieve SCIM schema information
   server.tool('schemas', 'Retrieve SCIM schema information', {}, withErrorHandling(async (_, extra) => {
     const schemas = await scimService.getSchemas();
@@ -311,9 +438,18 @@ async function runHttpServer() {
     sse: {} as Record<string, SSEServerTransport>
   };
 
-  app.post('/mcp', async (req: Request, res: Response) => {
+  // Handle both /mcp and /mcp/:token routes
+  app.post(['/mcp', '/mcp/:token'], async (req: Request, res: Response) => {
     try {
-      const authHeader = req.headers.authorization;
+      // Get auth from header or URL parameter
+      let authHeader = req.headers.authorization;
+      const urlToken = req.params.token;
+      
+      // If token is provided in URL and no auth header, use URL token
+      if (urlToken && !authHeader) {
+        authHeader = `Bearer ${urlToken}`;
+      }
+      
       const transport: StreamableHTTPServerTransport = new StreamableHTTPServerTransport({
         sessionIdGenerator: undefined,
       });
@@ -340,7 +476,7 @@ async function runHttpServer() {
     }
   });
 
-  app.get('/mcp', async (req: Request, res: Response) => {
+  app.get(['/mcp', '/mcp/:token'], async (req: Request, res: Response) => {
     console.log('Received GET MCP request');
     console.log('Request headers:', req.headers);
     console.log('Request body:', req.body);
@@ -357,7 +493,7 @@ async function runHttpServer() {
     }));
   });
 
-  app.delete('/mcp', async (req: Request, res: Response) => {
+  app.delete(['/mcp', '/mcp/:token'], async (req: Request, res: Response) => {
     console.log('Received DELETE MCP request');
     res.writeHead(405).end(JSON.stringify({
       jsonrpc: "2.0",
