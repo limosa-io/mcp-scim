@@ -317,6 +317,10 @@ async function runHttpServer() {
     sse: {} as Record<string, SSEServerTransport>
   };
 
+  app.get('/', (req: Request, res: Response) => {
+    res.send('SCIM MCP Server is running');
+  });
+
   // Handle both /mcp and /mcp/:token routes
   app.post(['/mcp', '/mcp/:token'], async (req: Request, res: Response) => {
     try {
